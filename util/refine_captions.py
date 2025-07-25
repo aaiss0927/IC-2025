@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# refine_pairs.py ── Ristretto‑3B로 색채화용 캡션 리파인
+# refine_pairs_for_lcad.py ── L-CAD 훈련용 캡션 리파인 (짧고 COCO 스타일)
 # ------------------------------------------------------------------------
 """
 필수 패키지
@@ -8,37 +8,26 @@ pip install torch>=2.3.0 transformers==4.37.0 torchvision pillow tqdm
 """
 
 from __future__ import annotations
-import argparse, json, os
+import argparse, json
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
-import torch, torchvision.transforms as T
+import torch
+import torchvision.transforms as T
 from torchvision.transforms.functional import InterpolationMode
 from PIL import Image
 from tqdm.auto import tqdm
 from transformers import AutoModel, AutoTokenizer
 
 # ────────────────────── 0. 인자 파싱 ─────────────────────────────────────────
-p = argparse.ArgumentParser(description="Ristretto‑3B caption refiner")
+p = argparse.ArgumentParser(description="L-CAD caption refiner (Ristretto‑3B)")
+p.add_argument("--img_dir", default="./test/input_image", help="이미지 폴더")
 p.add_argument(
-    "--img_dir",
-    default="/shared/home/kdd/HZ/inha-challenge/test/input_image",
-    help="흑백 테스트 이미지 폴더",
+    "--pairs", default="./test/caption_test_mine.json", help="원본 caption JSON 경로"
 )
+p.add_argument("--out", default="./test/caption_ttt.json", help="출력 JSON 경로")
 p.add_argument(
-    "--pairs",
-    default="/shared/home/kdd/HZ/inha-challenge/test/pairs.json",
-    help="원본 pairs.json 경로",
-)
-p.add_argument(
-    "--out",
-    default="/shared/home/kdd/HZ/inha-challenge/test/refined_pairs.json",
-    help="출력 json 경로",
-)
-p.add_argument(
-    "--model",
-    default="LiAutoAD/Ristretto-3B",
-    help="HF 모델 경로(또는 로컬 체크포인트)",
+    "--model", default="LiAutoAD/Ristretto-3B", help="HF 모델 경로 또는 로컬 체크포인트"
 )
 p.add_argument("--max_new_tokens", type=int, default=77)
 args = p.parse_args()
@@ -57,7 +46,7 @@ model = (
 )
 tok = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True, use_fast=False)
 
-# ────────────────────── 2. 이미지 전처리 util ───────────────────────────────
+# ────────────────────── 2. 이미지 전처리 ─────────────────────────────────────
 IMNET_MEAN, IMNET_STD = (0.5, 0.5, 0.5), (0.5, 0.5, 0.5)
 
 
@@ -73,7 +62,6 @@ def _build_transform(sz: int = 384):
 
 
 def preprocess_image(img_path: Path, input_sz: int = 384):
-    """단순 1 블록(1 이미지 토큰) 버전 – 색채화 용도로 충분"""
     img = Image.open(img_path).convert("RGB")
     pixel = _build_transform(input_sz)(img).unsqueeze(0)  # [1,3,H,W]
     return pixel.to(device, dtype=torch.bfloat16 if device == "cuda" else torch.float32)
@@ -81,29 +69,33 @@ def preprocess_image(img_path: Path, input_sz: int = 384):
 
 # ────────────────────── 3. pairs.json 로드 ──────────────────────────────────
 with open(args.pairs, "r", encoding="utf-8") as f:
-    pairs: List[List[str]] = json.load(f)
+    pairs: Dict[str, List[str]] = json.load(f)
 
-# ────────────────────── 4. 루프 ─────────────────────────────────────────────
-refined: List[List[str]] = []
+# ────────────────────── 4. 캡션 생성 루프 ─────────────────────────────────────
+refined: Dict[str, List[str]] = {}
 gen_cfg = dict(max_new_tokens=args.max_new_tokens, do_sample=False, temperature=0.0)
 
-for img_name, ori_cap in tqdm(pairs, desc="refining"):
+for img_name, ori_caps in tqdm(pairs.items(), desc="refining"):
     img_path = Path(args.img_dir) / img_name
     if not img_path.exists():
         print(f"[WARN] {img_path} not found – 건너뜀")
         continue
 
     pixels = preprocess_image(img_path)  # (1,3,384,384)
-    # Ristretto는 <image> 토큰이 포함된 프롬프트를 요구한다:contentReference[oaicite:0]{index=0}
+
+    # 프롬프트: L-CAD 스타일 → 짧고 간결한 문장, 1~3개 생성
+    color_clues = " ".join(ori_caps)  # 기존 설명 합치기
     prompt = (
         "<image>\n"
-        "Write ONE COCO‑style caption describing the grayscale photo, "
-        "merging what you SEE with the COLOR clues below. "
-        "• single sentence, 5‑20 words, present tense, mostly lowercase\n"
-        "• include concrete hues, materials, lighting when relevant\n"
-        "• no questions, no extra commentary\n"
-        f"color clues: {ori_cap}\n"
-        "coco caption:"
+        "You are generating COCO-style captions for image colorization training.\n"
+        "Rules:\n"
+        "• Write more than one sentences.\n"
+        "• Do not produce duplicate sentences..\n"
+        "• Simple, descriptive, lowercase, present tense.\n"
+        "• Include colors, objects, and actions when possible.\n"
+        "• No questions, no commentary.\n\n"
+        f"Original hints: {color_clues}\n"
+        "Captions:"
     )
 
     with torch.no_grad():
@@ -111,7 +103,9 @@ for img_name, ori_cap in tqdm(pairs, desc="refining"):
             tok, pixels, prompt, gen_cfg, history=None, return_history=True
         )
 
-    refined.append([img_name, response.strip()])
+    # 여러 문장으로 나눠서 리스트로 변환
+    sentences = [s.strip() for s in response.split(".") if len(s.strip()) > 0]
+    refined[img_name] = sentences
 
 # ────────────────────── 5. 저장 ─────────────────────────────────────────────
 with open(args.out, "w", encoding="utf-8") as f:

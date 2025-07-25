@@ -1,21 +1,20 @@
 #!/usr/bin/env python
-# inference_blip.py  ── L‑CAD 추론 + (옵션) BLIP 캡션‑리파인
-# ------------------------------------------------------------------------
-from __future__ import annotations
-import argparse, os, time, zipfile, json
-from pathlib import Path
-import re
-
-import einops, numpy as np, pandas as pd, torch
-from PIL import Image
+from share import *
+import sys, argparse, os, zipfile, random, json, time
+import pytorch_lightning as pl
 from torch.utils.data import DataLoader
-
 from colorization_dataset import MyDataset
 from cldm.model import create_model, load_state_dict
-from ldm.models.diffusion.ddim import DDIMSampler_withsam
+import torch
+import einops
+from PIL import Image
+import numpy as np
+from tqdm import tqdm
+import pandas as pd
+import open_clip
+import warnings
 
-import open_clip  # CLIP embedding
-from transformers import Blip2Processor, Blip2ForConditionalGeneration
+warnings.filterwarnings("ignore")
 
 
 # ================ CLI =======================================================
@@ -23,26 +22,13 @@ def get_args():
     p = argparse.ArgumentParser(
         description="L‑CAD inference with optional BLIP caption refinement"
     )
-    p.add_argument("--ckpt", default="./prt_ckpt/coco_weight.ckpt")
+    p.add_argument("--ckpt", default="./prt_ckpt/multi_weight.ckpt")
     p.add_argument("--config", default="./L-CAD/configs/cldm_sample.yaml")
     p.add_argument("--img_dir", default="./test/input_image")
     p.add_argument("--pair_dir", default="./test")  # contains pairs.json
     p.add_argument("--mask_root", default="sam_mask/select_masks")
     p.add_argument("--out_root", default="./results")
     p.add_argument("--use_sam", action="store_true")
-    # BLIP options
-    p.add_argument(
-        "--use_blip",
-        action="store_true",
-        help="enable on‑the‑fly BLIP caption refinement",
-    )
-    p.add_argument("--blip_model", default="Salesforce/blip2-flan-t5-xl-coco")
-    p.add_argument(
-        "--blip_8bit",
-        action="store_true",
-        help="load BLIP in 8‑bit (requires bitsandbytes)",
-    )
-    # sampling
     p.add_argument("--ddim_steps", type=int, default=30)
     p.add_argument("--guidance", type=float, default=5)
     p.add_argument(
@@ -56,191 +42,168 @@ def get_args():
     return p.parse_args()
 
 
-# ================ BLIP helper ==============================================
-class BlipRefiner:
-    def __init__(self, model_name: str, device: str, use_8bit: bool = False):
-        self.proc = Blip2Processor.from_pretrained(model_name)
-        self.model = (
-            Blip2ForConditionalGeneration.from_pretrained(
-                model_name,
-                torch_dtype=torch.float16 if not use_8bit else None,
-                load_in_8bit=use_8bit,
-                device_map="auto" if use_8bit else None,
-            )
-            .to(device)
-            .eval()
-        )
-        self.device = device
-
-    @torch.no_grad()
-    def __call__(self, image: Image.Image, ori: str) -> str:
-        prompt = (
-            "Rewrite the caption, keeping it concise (≤77 tokens), "
-            f'Original: "{ori}"'
-            "Describe the objects and their colors explicitly."
-            "realistic, high quality, detailed, Do not change the structure. Only Colorize."
-        )
-        inputs = self.proc(images=image, text=prompt, return_tensors="pt").to(
-            self.device
-        )
-        out = self.model.generate(**inputs, max_new_tokens=77)
-        return self.proc.decode(out[0], skip_special_tokens=True)
+# ====================== 설정 ======================
+start_time = time.strftime("%Y-%m-%d-%H-%M-%S")  # ✅ 타임스탬프
+CFG = {
+    "SUB_DIR": os.path.join("./results", start_time),
+    "SEED": 42,
+}  # ✅ 결과 폴더 변경
 
 
-# ================ main ======================================================
-def main():
-    args = get_args()
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    if args.single_name:
-        args.out_root = "./result_single"
-
-    # ---------- I/O paths ----------------------------------------------------
-    run_stamp = time.strftime("%Y%m%d-%H%M%S")
-    out_dir = Path(args.out_root) / f"test_{run_stamp}"
-    sub_dir = out_dir / "submission"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    sub_dir.mkdir(parents=True, exist_ok=True)
-
-    # ---------- model --------------------------------------------------------
-    model = create_model(args.config).cpu()
-    model.load_state_dict(load_state_dict(args.ckpt, location="cpu"), strict=False)
-    model = model.to(device)
-    model.usesam = args.use_sam
-
-    ddim_sampler = DDIMSampler_withsam(model)
-
-    # ---------- BLIP (optional) ---------------------------------------------
-    refiner = None
-    if args.use_blip:
-        print(f">> loading BLIP refiner [{args.blip_model}] …")
-        refiner = BlipRefiner(args.blip_model, device, use_8bit=args.blip_8bit)
-
-    # ---------- dataset ------------------------------------------------------
-    test_ds = MyDataset(
-        img_dir=args.img_dir,
-        caption_dir=args.pair_dir,
-        split="test",
-        use_sam=args.use_sam,
-        mask_root=args.mask_root,
-    )
-    test_loader = DataLoader(test_ds, batch_size=1, shuffle=False, num_workers=0)
-
-    saved_img_paths = []  # for CLIP embedding
-
-    # ---------- loop ---------------------------------------------------------
-    for idx, batch in enumerate(test_loader, 1):
-        img_name = batch["name"][0]
-
-        # ✨ 단일 추론 모드: 이름이 다르면 continue, 맞으면 끝나면 break
-        if args.single_name and Path(img_name).name != args.single_name:
-            continue
-
-        # raw_prompt = (
-        #     args.single_prompt if args.single_prompt is not None else batch["txt"][0]
-        # )
-
-        # ✨ 문장 단위로 잘라서 줄바꿈으로 합치기
-        # sentences = re.findall(r"[^.?!]+[.?!]", raw_prompt)  # 끝에 . ? ! 가 붙은 구절
-        # prompt = "\n".join(s.strip() for s in sentences if s.strip())
-
-        # batch["txt"][0] = prompt
-
-        prompt = (
-            args.single_prompt if args.single_prompt is not None else batch["txt"][0]
-        )
-        batch["txt"][0] = prompt
-
-        # ⇢ BLIP refine -------------------------------------------------------
-        if refiner is not None:
-            try:
-                # 원본 입력 이미지를 다시 열어 전달
-                pil_img = Image.open(Path(args.img_dir) / img_name).convert("RGB")
-                prompt = refiner(pil_img, prompt)
-                batch["txt"][0] = prompt
-            except Exception as e:
-                print(f"[BLIP‑ERR] {img_name}: {e}")
-
-        print(f"[{idx:>3}/{len(test_loader)}] {img_name}")
-        print("   prompt:", prompt[:120], "..." if len(prompt) > 120 else "")
-
-        # ----- control / hint ----------------------------------------------
-        control = einops.rearrange(
-            batch[model.control_key].to(device), "b h w c -> b c h w"
-        ).float()
-        gray_z = model.first_stage_model.g_encoder(control)
-
-        # ----- text cond ----------------------------------------------------
-        cond = model.get_learned_conditioning(batch["txt"])
-        uc_cross = model.get_unconditional_conditioning(1)
-
-        cond_dict = {"c_concat": [control], "c_crossattn": [cond]}
-        uc_dict = {"c_concat": [control], "c_crossattn": [uc_cross]}
-
-        sam_mask = None
-        if args.use_sam and isinstance(batch.get("mask"), torch.Tensor):
-            sam_mask = batch["mask"].to(device)  # [1, N, H, W]
-
-        shape = (model.channels, control.shape[2] // 8, control.shape[3] // 8)
-
-        # ----- sampling -----------------------------------------------------
-        samples, _ = ddim_sampler.sample(
-            args.ddim_steps,
-            1,
-            shape,
-            cond_dict,
-            unconditional_conditioning=uc_dict,
-            unconditional_guidance_scale=args.guidance,
-            eta=0.0,
-            sam_mask=sam_mask,
-            verbose=False,
-        )
-
-        # ----- decode & save -----------------------------------------------
-        img = model.decode_first_stage(samples, gray_z)
-        img = torch.clamp((img + 1) / 2, 0, 1)[0]  # [C,H,W]
-        img_np = (img.permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
-
-        out_name = f"out_{Path(img_name).stem}.png"
-        Image.fromarray(img_np).save(out_dir / out_name)
-
-        # submission (ID 그대로)
-        sub_path = sub_dir / f"{Path(img_name).stem}.png"
-        Image.fromarray(img_np).save(sub_path)
-        saved_img_paths.append(sub_path)
-
-        if args.single_name:  # ✨ 원하는 하나를 처리했으면 반복 종료
-            break
-
-    # ---------- CLIP embedding ----------------------------------------------
-    if saved_img_paths and not args.single_name:
-        clip_model, _, clip_pre = open_clip.create_model_and_transforms(
-            "ViT-L-14", pretrained="openai"
-        )
-        clip_model.to(device).eval()
-
-        vecs, ids = [], []
-        for p in saved_img_paths:
-            im = clip_pre(Image.open(p)).unsqueeze(0).to(device)
-            with torch.no_grad():
-                v = clip_model.encode_image(im)
-                v = v / v.norm(dim=-1, keepdim=True)
-            vecs.append(v.cpu().numpy().flatten())
-            ids.append(p.stem)
-
-        df = pd.DataFrame(
-            np.array(vecs), columns=[f"vec_{i}" for i in range(len(vecs[0]))]
-        )
-        df.insert(0, "ID", ids)
-        df.to_csv(sub_dir / "embed_submission.csv", index=False)
-
-        # zip packaging
-        zip_path = out_dir / "submission.zip"
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            for f in sub_dir.iterdir():
-                zf.write(f, arcname=f.name)
-        print(f"✓ submission written → {zip_path}")
+def seed_everything(seed: int = 42):
+    random.seed(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
-# ============================================================================
+seed_everything(CFG["SEED"])
+
+
+# ====================== 유틸 ======================
+def save_images(samples, batch, save_root):
+    os.makedirs(save_root, exist_ok=True)
+    for i in range(samples.shape[0]):
+        img_name = batch["name"][i]
+        img_id = os.path.splitext(img_name)[0]
+        grid = samples[i].transpose(0, 1).transpose(1, 2).squeeze(-1)
+        grid = grid.detach().cpu().numpy()
+        grid = (grid * 255).clip(0, 255).astype(np.uint8)
+        out_path = os.path.join(save_root, f"{img_id}.png")
+        Image.fromarray(grid).save(out_path)
+
+
+# ====================== 메인 ======================
 if __name__ == "__main__":
-    main()
+    args = get_args()
+    resume_path = "/shared/home/kdd/HZ/inha-challenge/prt_ckpt/multi_weight.ckpt"
+    model_cfg = "/shared/home/kdd/HZ/inha-challenge/L-CAD/configs/cldm_sample.yaml"
+    batch_size = 1
+
+    print(">> Loading L-CAD model …")
+    model = create_model(model_cfg).cpu()
+    model.load_state_dict(load_state_dict(resume_path, location="cpu"), strict=False)
+    model = model.cuda()
+    model.usesam = True
+
+    dataset = MyDataset(
+        img_dir="/shared/home/kdd/HZ/inha-challenge",
+        caption_path="/shared/home/kdd/HZ/inha-challenge/test/pairs.json",
+        split="test",
+        use_sam=True,
+    )
+    dataloader = DataLoader(
+        dataset, num_workers=0, batch_size=batch_size, shuffle=False
+    )
+
+    from ldm.models.diffusion.ddim import DDIMSampler_withsam
+
+    ddim_steps = 30
+    ddim_eta = 0.0
+    unconditional_guidance_scale = 5.0
+
+    os.makedirs(CFG["SUB_DIR"], exist_ok=True)
+
+    generated_image_paths = []
+    generated_ids = []
+
+    # ✅ Sampler 외부 생성
+    sampler = DDIMSampler_withsam(model)
+
+    print(">> Start inference …")
+    for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
+        control = batch[model.control_key].to(model.device)
+        control = einops.rearrange(control, "b h w c -> b c h w")
+        c_cat = control.to(memory_format=torch.contiguous_format).float()
+        gray_z = model.first_stage_model.g_encoder(c_cat)
+
+        xc = batch["txt"]
+        c = model.get_learned_conditioning(xc)
+
+        tokens = model.cond_stage_model.tokenizer.tokenize(xc[0])
+        batch_encoding = model.cond_stage_model.tokenizer(
+            xc[0],
+            truncation=True,
+            max_length=77,
+            return_length=True,
+            return_overflowing_tokens=False,
+            padding="max_length",
+            return_tensors="pt",
+        )
+        split_idx = []
+        for idx, token in enumerate(tokens):
+            if token == ",</w>":
+                split_idx.append(idx + 1)
+        split_idx.append(idx + 2)
+
+        sam_mask = batch["mask"]
+
+        N = c_cat.shape[0]
+        uc_cross = model.get_unconditional_conditioning(N)
+        uc_cat = c_cat
+        uc_full = {"c_concat": [uc_cat], "c_crossattn": [uc_cross]}
+
+        cond = {"c_concat": [c_cat], "c_crossattn": [c]}
+        b, c_, h, w = cond["c_concat"][0].shape
+        shape = (model.channels, h // 8, w // 8)
+
+        samples_cfg, _ = sampler.sample(
+            ddim_steps,
+            b,
+            shape,
+            cond,
+            eta=ddim_eta,
+            unconditional_guidance_scale=unconditional_guidance_scale,
+            unconditional_conditioning=uc_full,
+            verbose=False,
+            use_attn_guidance=False,
+            sam_mask=sam_mask,
+            split_id=split_idx,
+            tokens=tokens,
+        )
+
+        x_samples = model.decode_first_stage(samples_cfg, gray_z)
+        x_samples = torch.clamp((x_samples + 1.0) / 2.0, 0.0, 1.0)
+
+        save_images(x_samples, batch=batch, save_root=CFG["SUB_DIR"])
+        for name in batch["name"]:
+            generated_ids.append(os.path.splitext(name)[0])
+            generated_image_paths.append(
+                os.path.join(CFG["SUB_DIR"], os.path.splitext(name)[0] + ".png")
+            )
+
+    print("✅ 이미지 생성 완료:", CFG["SUB_DIR"])
+
+    print(">> Extracting CLIP embeddings …")
+    clip_model, _, clip_preprocess = open_clip.create_model_and_transforms(
+        "ViT-L-14", pretrained="openai"
+    )
+    clip_model = clip_model.to("cuda" if torch.cuda.is_available() else "cpu").eval()
+
+    feat_list = []
+    for img_path in tqdm(generated_image_paths):
+        img = Image.open(img_path).convert("RGB")
+        with torch.no_grad():
+            tensor = clip_preprocess(img).unsqueeze(0).to(clip_model.logit_scale.device)
+            feat = clip_model.encode_image(tensor)
+            feat /= feat.norm(dim=-1, keepdim=True)
+        feat_list.append(feat.detach().cpu().numpy().reshape(-1))
+
+    feat_arr = np.array(feat_list)
+    vec_cols = [f"vec_{i}" for i in range(feat_arr.shape[1])]
+    df_embed = pd.DataFrame(feat_arr, columns=vec_cols)
+    df_embed.insert(0, "ID", generated_ids)
+    embed_csv_path = os.path.join(CFG["SUB_DIR"], "embed_submission.csv")
+    df_embed.to_csv(embed_csv_path, index=False)
+    print(f"✅ 임베딩 CSV 저장: {embed_csv_path}")
+
+    zip_path = "./submission/submission.zip"
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for fname in os.listdir(CFG["SUB_DIR"]):
+            fpath = os.path.join(CFG["SUB_DIR"], fname)
+            if os.path.isfile(fpath) and not fname.startswith("."):
+                zf.write(fpath, arcname=fname)
+    print(f"✅ 압축 완료: {zip_path}")

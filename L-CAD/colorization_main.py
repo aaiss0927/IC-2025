@@ -1,240 +1,180 @@
-"""Fine‑tuning / evaluation entry‑point for the L‑CAD colorization model.
-
-Example usages
---------------
-Train from ImageNet‑initialised weights (16‑batch, 2 GPUs):
-
-python ./L-CAD/colorization_main.py             \
-    --train                                     \
-    --img_root  ./train/gt_image                \
-    --caption_root ./train                      \
-    --init_ckpt ./prt_ckpt/coco_weight.ckpt     \
-    --gpus 1                                    \
-    --batch 1                                   \
-    --lr 1e-5
-
-python ./L-CAD/colorization_main.py             \
-    --train                                     \
-    --img_root  ./train_debug/gt_image                \
-    --caption_root ./train_debug                      \
-    --init_ckpt /shared/home/kdd/HZ/inha-challenge/logs/20250722‑140601/hpc_ckpt_3_5642_0.004.ckpt     \
-    --gpus 1                                    \
-    --batch 1                                   \
-    --lr 1e-5
--------------------------------------------------
-nohup python ./L-CAD/colorization_main.py       \
-    --train                                     \
-    --img_root  ./train/gt_image                \
-    --caption_root ./train                      \
-    --init_ckpt ./prt_ckpt/coco_weight.ckpt     \
-    --gpus 1                                    \
-    --batch 1                                   \
-    --lr 1e-5                                   \
-> output.log 2>&1 &
-
-Resume training:
-    python colorization_finetune.py --train --resume_ckpt logs/last.ckpt
-
-Validation / Test (single‑GPU):
-    python colorization_finetune.py \
-        --img_root ./val                               \
-        --caption_root ./val                           \
-        --mode val                                     \
-        --resume_ckpt logs/best.ckpt
-
-Notes
------
-* The script assumes the following directory layout for *each* split (**train**, **val**, **test**).
-
-        <img_root>/input_image/  XXX.jpg  (... gray images)
-        <img_root>/gt_image/     XXX.jpg  (... colour refs; not needed for test)
-        <caption_root>/pairs.json            (... or caption_train/val.json)
-
-  Feel free to point `img_root` / `caption_root` to different locations.
-* ``--use_sam`` will automatically expect masks under ``sam_mask/select_masks/<ID>/``.
-"""
-
-import types
-from torch.optim import AdamW
-import argparse
-import os
+import sys, argparse
+import pytorch_lightning as pl
+from torch.utils.data import DataLoader
+from colorization_dataset import MyDataset
+from cldm.logger import ImageLogger
+from cldm.model import create_model, load_state_dict
+import time
+import torch
 from pathlib import Path
 from datetime import datetime
-
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import (
     ModelCheckpoint,
     LearningRateMonitor,
 )
-from torch.utils.data import DataLoader
-
-from colorization_dataset import MyDataset
-from cldm.logger import ImageLogger
-from cldm.model import create_model, load_state_dict
+from share import *
 
 
-def get_parser():
-    p = argparse.ArgumentParser(description="Fine‑tune / evaluate L‑CAD model")
+def get_parser(**parser_kwargs):
+    def str2bool(v):
+        if isinstance(v, bool):
+            return v
+        if v.lower() in ("yes", "true", "t", "y", "1"):
+            return True
+        elif v.lower() in ("no", "false", "f", "n", "0"):
+            return False
+        else:
+            raise argparse.ArgumentTypeError("Boolean value expected.")
 
-    # --- mode -----------------------------------------------------------------
-    p.add_argument("--train", action="store_true", help="run training")
-    p.add_argument("--mode", choices=["train", "val", "test"], default="train")
-
-    # --- paths ----------------------------------------------------------------
-    p.add_argument(
-        "--img_root", required=True, help="root dir containing input_image/ & gt_image/"
+    parser = argparse.ArgumentParser(**parser_kwargs)
+    parser.add_argument(
+        "-t",
+        "--train",
+        type=str2bool,
+        const=True,
+        default=False,
+        nargs="?",
+        help="train",
     )
-    p.add_argument(
-        "--caption_root",
-        required=True,
-        help="dir with caption jsons (pairs.json or caption_*.json)",
+    parser.add_argument(
+        "-r",
+        "--resume",
+        type=str2bool,
+        const=True,
+        default=False,
+        nargs="?",
+        help="continue train from resume",
     )
-    p.add_argument(
-        "--init_ckpt",
-        default="./prt_ckpt/coco_weight.ckpt",
-        help="initial weights (when not resuming)",
+    parser.add_argument(
+        "-m",
+        "--multicolor",
+        type=str2bool,
+        const=True,
+        default=False,
+        nargs="?",
+        help="continue train from resume",
     )
-    p.add_argument(
-        "--resume_ckpt", default=None, help="checkpoint to resume / test with"
+    parser.add_argument(
+        "-s",
+        "--usesam",
+        type=str2bool,
+        const=True,
+        default=False,
+        nargs="?",
+        help="continue train from resume",
     )
-    p.add_argument(
-        "--config", default="./L-CAD/configs/cldm_v15_ehdecoder.yaml", help="model yaml"
-    )
-
-    # --- optimisation ---------------------------------------------------------
-    p.add_argument("--batch", type=int, default=16)
-    p.add_argument("--lr", type=float, default=0.00001)
-    p.add_argument(
-        "--epochs", type=int, default=5, help="number of training epochs"  # ★ 추가
-    )
-    p.add_argument("--gpus", type=int, default=1)
-    p.add_argument("--precision", type=int, choices=[16, 32], default=32)
-
-    # --- extras ---------------------------------------------------------------
-    p.add_argument(
-        "--use_sam", action="store_true", help="enable SAM masks during training/eval"
-    )
-    p.add_argument("--logger_freq", type=int, default=500)
-
-    return p
+    return parser.parse_known_args()
 
 
-pl.seed_everything(42, workers=True)
-
-
-def make_trainer(
-    save_dir: Path, gpus: int, precision: int, logger_freq: int, max_epochs: int
-):
+if __name__ == "__main__":
+    args, _ = get_parser()
+    save_dir = Path("/raid/HZ/ic/logs") / datetime.now().strftime("%Y%m%d‑%H%M%S")
     save_dir.mkdir(parents=True, exist_ok=True)
 
     ckpt_cb = ModelCheckpoint(
         dirpath=save_dir / "ckpts",
         filename="{step:08d}",
-        # save_top_k=-1,
+        save_top_k=-1,
         every_n_train_steps=500,
     )
 
     callbacks = [
         ckpt_cb,
         LearningRateMonitor("step"),
-        ImageLogger(batch_frequency=logger_freq),
+        ImageLogger(batch_frequency=500),
     ]
 
-    trainer = pl.Trainer(
-        gpus=gpus,
-        precision=precision,
-        default_root_dir=str(save_dir),
-        callbacks=callbacks,
-        max_epochs=max_epochs,
-        gradient_clip_val=1.0,
-        accumulate_grad_batches=max(1, 32 // gpus),
-        log_every_n_steps=logger_freq // 2,
-    )
-    return trainer
-
-
-from torch.optim import AdamW
-import types
-
-
-def build_model(
-    cfg: str,
-    init_ckpt: str | None = None,
-    resume_ckpt: str | None = None,
-    lr: float = 1e-5,
-):
-    # ── 원래 로드 부분 그대로 ────────────────────────────────────────────────
-    model = create_model(cfg).cpu()
-    ckpt_path = resume_ckpt or init_ckpt
-    if ckpt_path:
-        model.load_state_dict(load_state_dict(ckpt_path, location="cpu"), strict=False)
-
-    model.learning_rate = lr
-    model.sd_locked = False
-    model.only_mid_control = False
-
-    # ── AdamW( weight‑decay 1e‑2 ) 설정만 추가 ─────────────────────────────
-    def _configure(self):
-        decay, no_decay = [], []
-        for n, p in self.named_parameters():
-            if not p.requires_grad:
-                continue
-            if n.endswith("bias") or "norm" in n.lower():
-                no_decay.append(p)
-            else:
-                decay.append(p)
-
-        optimizer = AdamW(
-            [
-                {"params": decay, "weight_decay": 1e-2},
-                {"params": no_decay, "weight_decay": 0.0},
-            ],
-            lr=self.learning_rate,
-            betas=(0.9, 0.999),
-            eps=1e-8,
+    if args.train:
+        n_gpu = 1
+        init_model_path = (
+            "/shared/home/kdd/HZ/inha-challenge/prt_ckpt/multi_weight.ckpt"
         )
-        return optimizer  # 스케줄러 없이 옵티마이저만 반환
 
-    # Lightning 모듈에 메서드 주입
-    model.configure_optimizers = types.MethodType(_configure, model)
+        batch_size = 2
+        learning_rate = 1e-7 * n_gpu
+        sd_locked = False  #
+        only_mid_control = False
 
-    return model
+        model = create_model(
+            "/shared/home/kdd/HZ/inha-challenge/L-CAD/configs/cldm_v15_ehdecoder.yaml"
+        ).cpu()
 
+        model.load_state_dict(
+            load_state_dict(init_model_path, location="cpu"), strict=False
+        )
+        model.learning_rate = learning_rate
+        model.sd_locked = sd_locked
+        model.only_mid_control = only_mid_control
 
-def main():
-    args = get_parser().parse_args()
+        dataset = MyDataset(
+            img_dir="/shared/home/kdd/HZ/inha-challenge/train/input_image",
+            caption_path="/shared/home/kdd/HZ/inha-challenge/train/caption_train_mine.json",
+        )
 
-    # --- datasets -------------------------------------------------------------
-    split = (
-        "train" if args.mode == "train" else args.mode
-    )  # val / test pass straight through
-    ds = MyDataset(
-        img_dir=os.path.join(
-            args.img_root, "input_image" if split == "test" else ""
-        ),  # for train/val MyDataset adds split suffix internally
-        caption_dir=args.caption_root,
-        split=split,
-        use_sam=args.use_sam,
-        coco_style=False,
-    )
+        dataloader = DataLoader(
+            dataset, num_workers=0, batch_size=batch_size, shuffle=True
+        )
+        trainer = pl.Trainer(
+            gpus=1,
+            precision=32,
+            default_root_dir=str(save_dir),
+            callbacks=callbacks,
+            max_epochs=6,
+            log_every_n_steps=250,
+        )
+        # Train!
+        trainer.fit(model, dataloader)
 
-    loader = DataLoader(
-        ds, batch_size=args.batch, shuffle=(split == "train"), num_workers=4
-    )
+    else:  # test or val
 
-    # --- model / trainer ------------------------------------------------------
-    save_root = Path("/raid/HZ/ic/logs") / datetime.now().strftime("%Y%m%d‑%H%M%S")
-    trainer = make_trainer(
-        save_root, args.gpus, args.precision, args.logger_freq, args.epochs
-    )
-    model = build_model(args.config, args.init_ckpt, args.resume_ckpt, args.lr)
+        resume_path = ".models/xxxxx.ckpt"
 
-    if args.mode == "train":
-        trainer.fit(model, loader)
-    else:
-        model.usesam = args.use_sam
-        trainer.test(model, loader)
+        batch_size = 1
 
+        model = create_model(
+            "/shared/home/kdd/HZ/inha-challenge/L-CAD/configs/cldm_v15_ehdecoder.yaml"
+        ).cpu()
+        model.load_state_dict(load_state_dict(resume_path, location="cpu"))
 
-if __name__ == "__main__":
-    main()
+        trainer = pl.Trainer(
+            gpus=1,
+            precision=32,
+            default_root_dir=str(save_dir),
+            callbacks=callbacks,
+            max_epochs=6,
+            log_every_n_steps=250,
+        )
+        if args.multicolor:  # test demo
+            if args.usesam:  # -m -s
+                model.usesam = True
+                dataset = MyDataset(
+                    img_dir="/shared/home/kdd/HZ/inha-challenge",
+                    caption_path="./sam_mask/pairs.json",
+                    split="test",
+                    use_sam=True,
+                )
+                dataloader = DataLoader(
+                    dataset, num_workers=0, batch_size=batch_size, shuffle=False
+                )
+                trainer.test(model, dataloader)
+            else:  # -m
+                model.usesam = False
+                dataset = MyDataset(
+                    img_dir="example", caption_dir="example", split="test"
+                )
+                dataloader = DataLoader(
+                    dataset, num_workers=0, batch_size=batch_size, shuffle=False
+                )
+                trainer.test(model, dataloader)
+        else:  # val
+            model.usesam = False
+            dataset = MyDataset(
+                img_dir="/shared/home/kdd/HZ/inha-challenge",
+                caption_path="/shared/home/kdd/HZ/inha-challenge/validation/caption_validation.json",
+                split="val",
+            )  #
+            dataloader = DataLoader(
+                dataset, num_workers=0, batch_size=batch_size, shuffle=False
+            )
+            trainer.test(model, dataloader)
