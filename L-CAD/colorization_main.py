@@ -87,9 +87,7 @@ if __name__ == "__main__":
 
     if args.train:
         n_gpu = 1
-        init_model_path = (
-            "/shared/home/kdd/HZ/inha-challenge/prt_ckpt/multi_weight.ckpt"
-        )
+        init_model_path = "/shared/home/kdd/HZ/inha-challenge/models/multi_weight.ckpt"
 
         batch_size = 2
         learning_rate = 1e-7 * n_gpu

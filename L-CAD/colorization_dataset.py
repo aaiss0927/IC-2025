@@ -14,7 +14,13 @@ from einops import rearrange
 
 class MyDataset(Dataset):
     def __init__(
-        self, img_dir, caption_path=None, split="train", img_size=512, use_sam=False
+        self,
+        img_dir,
+        caption_path=None,
+        split="test",
+        img_size=512,
+        use_sam=True,
+        mask_dir=None,
     ):
 
         assert split in ["train", "val", "test"]
@@ -26,6 +32,7 @@ class MyDataset(Dataset):
         self.istest = False
         self.use_sam = use_sam
         self.img_size = img_size
+        self.mask_dir = mask_dir
         if split == "train":
             self.transform = transforms.Compose(
                 [
@@ -54,11 +61,7 @@ class MyDataset(Dataset):
             self.img_dir = "/shared/home/kdd/HZ/inha-challenge/test/input_image"
             if self.use_sam:
                 print("use SAM!!!!!")
-                # caption_path = os.path.join("./sam_mask", "pairs.json")
-                # caption_path = os.path.join(
-                #     "/shared/home/kdd/HZ/inha-challenge/sam_mask",
-                #     "pairs.json",
-                # )
+                caption_path = caption_path
             else:
                 print("don't use SAM.....")
                 caption_path = os.path.join(
@@ -105,7 +108,7 @@ class MyDataset(Dataset):
         return cap, index
 
     def get_mask(self, img_name):
-        mask_dir = "./sam_mask/select_masks"
+        mask_dir = self.mask_dir
         mask_list = []
         mask_path = os.path.join(mask_dir, img_name.split(".")[0])
         for mask_name in sorted(os.listdir(mask_path)):
@@ -113,8 +116,6 @@ class MyDataset(Dataset):
             mask = mask.astype("float")
             mask = cv2.resize(mask, (self.img_size, self.img_size))
             mask = np.expand_dims(mask, axis=0)
-            # print('mask.shape',mask.shape)
-            # print(mask)
             mask_list.append(mask)
         masks = np.concatenate(mask_list, axis=0)
         return masks

@@ -1,8 +1,12 @@
 import json
+import argparse
+
+p = argparse.ArgumentParser()
+args = p.parse_args()
 
 # 입력 caption_test.json 파일 경로
-input_path = "/shared/home/kdd/HZ/inha-challenge/train/caption_train_mine.json"
-output_path = "/shared/home/kdd/HZ/inha-challenge/train/caption_train.json"
+input_path = "/shared/home/kdd/HZ/inha-challenge/test/caption_internvl3.json"
+output_path = "/shared/home/kdd/HZ/inha-challenge/test/pairs_internvl3.json"
 
 # 1. caption_test.json 읽기
 with open(input_path, "r", encoding="utf-8") as f:
