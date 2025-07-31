@@ -9,7 +9,7 @@
 - ./models/sam2.1_hiera_base_plus.pt : https://github.com/facebookresearch/sam2 에서 공개한 사전 가중치입니다.
 ```bash
 IC-2025/
-├── L-CAD/               # L-CAD repository
+├── L-CAD/         # L-CAD repository
 │   ├── cldm
 │   ├── configs
 │   ├── ldm
@@ -20,15 +20,15 @@ IC-2025/
 │   ├── inference.py
 │   ├── README.md
 │   └── share.py
-├── models/               # weight files
+├── models/        # weight files
 │   ├── largedecoder-checkpoint.pth
 │   ├── multi_weight.ckpt
 │   └── sam2.1_hiera_base_plus.pt
 ├── sam_mask/
 │   ├── select_masks
 │   └── make_masks.py
-├── sam2/           # SAM repository
-├── submission/     # 추론 결과
+├── sam2/          # SAM repository
+├── submission/    # 추론 결과
 │   ├── submission_g4p0.zip
 │   ├── submission_g4p5.zip
 │   ├── submission_g5p0.zip
@@ -38,7 +38,7 @@ IC-2025/
 │   ├── input_image
 │   ├── test.csv
 │   └── caption_test.json
-├── train/    # 학습 데이터셋
+├── train/         # 학습 데이터셋
 │   ├── gt_image
 │   ├── input_image
 │   ├── train.csv
