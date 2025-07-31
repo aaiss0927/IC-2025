@@ -4,43 +4,47 @@
 
 ## Folder Structure
 - ckpt, data 파일은 위의 Pretrained Checkpoint & dataset 섹션에서 다운로드 받은후 드라이브 구조와 동일하게 위치하면 됩니다.
-- data_augmentation 코드를 활용하여 데이터 증강을 진행했으며, 완료된 결과 또한 드라이브에 포함되어 있습니다.
+- ./models/largedecoder-checkpoint.pth : https://github.com/changzheng123/L-CAD 에서 공개한 사전 가중치입니다. (https://drive.google.com/drive/folders/1_zVJrp_UkFDaZpcC8aLzpv4iPsHADQU-)
+- ./models/multi_weight.ckpt : https://github.com/changzheng123/L-CAD 에서 공개한 사전 가중치입니다. (https://drive.google.com/drive/folders/1_zVJrp_UkFDaZpcC8aLzpv4iPsHADQU-)
+- ./models/sam2.1_hiera_base_plus.pt : https://github.com/facebookresearch/sam2 에서 공개한 사전 가중치입니다.
 ```bash
-SW-2025/
-├── ckpt/               # weight files
-│   ├── full_text
-│   │   └── epoch_1.pt
-│   ├── gemma
-│   │   └── checkpoint_2
-│   ├── llama
-│   │   └── checkpoint_3
-│   ├── self_training
-│   │   └── checkpoint_1
-│   └── train_pseudo
-│       └── checkpoint_1
-├── data/               # 기존 데이터 & 증강 데이터 
-│   ├── train.csv
-│   ├── train_pseudo_label.csv
-│   ├── train_llama.csv
-│   ├── train_gemma.csv
+IC-2025/
+├── L-CAD/               # L-CAD repository
+│   ├── cldm
+│   ├── configs
+│   ├── ldm
+│   ├── colorization_dataset.py
+│   ├── colorization_main.py
+│   ├── config.py
+│   ├── ensemble.py
+│   ├── inference.py
+│   ├── README.md
+│   └── share.py
+├── models/               # weight files
+│   ├── largedecoder-checkpoint.pth
+│   ├── multi_weight.ckpt
+│   └── sam2.1_hiera_base_plus.pt
+├── sam_mask/
+│   ├── select_masks
+│   └── make_masks.py
+├── sam2/           # SAM repository
+├── submission/     # 추론 결과
+│   ├── submission_g4p0.zip
+│   ├── submission_g4p5.zip
+│   ├── submission_g5p0.zip
+│   ├── submission_g5p5.zip
+│   └── final_ensemble.zip
+├── test/          # 테스트 데이터셋
+│   ├── input_image
 │   ├── test.csv
-│   └── sample_submission.csv
-├── data_augmentation/  # 데이터 증강 코드
-│   ├── gemma_augmentation.py
-│   └── llama_augmentation.py
-├── emsemble/           # 앙상블 코드
-│   ├── ensemble_2.py
-│   └── ensemble.py
-├── inference/          # 추론 코드
-│   ├── inference_custom.py
-│   └── inference.py
-├── pseudo_labeling/    # 수도 레이블링 코드
-│   └── pseudo_labeling.py
-├── scripts/            # 추론 스크립트
-│   └── inference.sh
-├── train/              # 학습 코드
-│   ├── train_custom.py
-│   └── train.py
+│   └── caption_test.json
+├── train/    # 학습 데이터셋
+│   ├── gt_image
+│   ├── input_image
+│   ├── train.csv
+│   └── caption_train.json
+├── util/
+│   └── preprocessing.py
 ├── README.md
 └── requirements.txt
 ```
