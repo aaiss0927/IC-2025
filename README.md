@@ -87,7 +87,7 @@ python ./L-CAD/colorization_main.py -t
 - 추론 시간을 단축시키기 위해 한 번의 모델 로드 후 다중 추론을 진행합니다.
 - 단일 추론 시에는 guidance 인자를 하나만 입력합니다.
 ```bash
-python ./L-CAD/inference_multi.py --guidance 4.0 4.5 5.0 5.5
+python ./L-CAD/inference.py --guidance 4.0 4.5 5.0 5.5
 ```
 
 ## Ensemble
