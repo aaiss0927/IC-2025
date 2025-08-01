@@ -6,7 +6,7 @@ https://drive.google.com/drive/folders/1ZPopR4h3fn9Tx_zdVRaqJ56-43JbBzW8?usp=sha
 - ckpt, data 파일은 위의 Pretrained Checkpoint & dataset 섹션에서 다운로드 받은후 드라이브 구조와 동일하게 위치하면 됩니다.
 - ./models/largedecoder-checkpoint.pth : https://github.com/changzheng123/L-CAD 에서 공개한 사전 가중치입니다. (https://drive.google.com/drive/folders/1_zVJrp_UkFDaZpcC8aLzpv4iPsHADQU-)
 - ./models/multi_weight.ckpt : https://github.com/changzheng123/L-CAD 에서 공개한 사전 가중치입니다. (https://drive.google.com/drive/folders/1_zVJrp_UkFDaZpcC8aLzpv4iPsHADQU-)
-- ./models/sam2.1_hiera_base_plus.pt : https://github.com/facebookresearch/sam2 에서 공개한 사전 가중치입니다.
+- ./models/sam2.1_hiera_base_plus.pt : https://github.com/facebookresearch/sam2 에서 공개한 사전 가중치입니다. (https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt)
 ```bash
 IC-2025/
 ├── L-CAD/         # L-CAD 레포지토리
