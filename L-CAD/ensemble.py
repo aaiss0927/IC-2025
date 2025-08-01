@@ -1,22 +1,10 @@
-#!/usr/bin/env python
-# ensemble_submissions_multi.py  ―― N개 ZIP(이미지 + embed_submission.csv) 앙상블
-# ① 이미지: mean / median / weighted / lab
-# ② embed CSV: ID·열 교집합 후 mean / median / weighted
-#    - ID 컬럼 보존 (index → "ID")
-#    - vec_0, vec_1 … vec_768 등은 **숫자순** 정렬
-
 import argparse, zipfile, tempfile, shutil, os, cv2, numpy as np, tqdm, pandas as pd, re
 
 # ───────── argparse ─────────
 p = argparse.ArgumentParser()
 p.add_argument("--zip", nargs="+", required=True, metavar="ZIP", help="input zip(s)")
-p.add_argument(
-    "--out", default="/shared/home/kdd/HZ/inha-challenge/ensembled/ensemble.zip"
-)
+p.add_argument("--out", default="./submission/final_ensemble.zip")
 p.add_argument("--mode", choices=["mean", "median", "lab"], default="mean")
-p.add_argument(
-    "--w", type=float, default=0.5, help="weight for the FIRST zip if --mode weighted"
-)
 args = p.parse_args()
 
 
@@ -118,7 +106,7 @@ if all(os.path.exists(p) for p in csv_paths):
             merged = np.median(stack, axis=0)
 
         df_out = pd.DataFrame(merged, index=common_ids, columns=common_cols)
-        df_out.index.name = "ID"  # 반드시 ID 컬럼으로
+        df_out.index.name = "ID"
         df_out.reset_index().to_csv(os.path.join(tmp_out, csv_name), index=False)
         print(f"[✓] embed csv merged  (rows={len(common_ids)})")
     else:
