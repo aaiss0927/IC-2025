@@ -18,7 +18,7 @@ https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.
 - ./models/multi_weight.ckpt : https://github.com/changzheng123/L-CAD 에서 공개한 사전 가중치입니다. (https://drive.google.com/drive/folders/1_zVJrp_UkFDaZpcC8aLzpv4iPsHADQU-)
 - ./models/sam2.1_hiera_base_plus.pt : https://github.com/facebookresearch/sam2 에서 공개한 사전 가중치입니다. (https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt)
 - .train/ : 데이콘 학습 데이터셋이며, train.csv를 포함시켰습니다.
-- .test/ : 데이콘 학습 데이터셋이며, test.csv를 포함시켰습니다.
+- .test/ : 데이콘 테스트 데이터셋이며, test.csv를 포함시켰습니다.
 ```bash
 IC-2025/
 ├── L-CAD/         # L-CAD 레포지토리
