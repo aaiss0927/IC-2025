@@ -55,6 +55,7 @@ IC-2025/
 
 ```bash
 git clone https://github.com/aaiss0927/IC-2025.git
+cd IC-2025
 conda create -n iac python=3.10 -y
 conda activate iac
 python -m pip install torch==2.7.1+cu118 torchvision==0.22.1+cu118 --index-url https://download.pytorch.org/whl/cu118
