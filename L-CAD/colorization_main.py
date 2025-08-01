@@ -69,11 +69,8 @@ def get_parser(**parser_kwargs):
 
 if __name__ == "__main__":
     args, _ = get_parser()
-    save_dir = Path("/raid/HZ/ic/logs") / datetime.now().strftime("%Y%m%d‑%H%M%S")
-    save_dir.mkdir(parents=True, exist_ok=True)
 
     ckpt_cb = ModelCheckpoint(
-        dirpath=save_dir / "ckpts",
         filename="{step:08d}",
         save_top_k=-1,
         every_n_train_steps=500,
@@ -87,16 +84,14 @@ if __name__ == "__main__":
 
     if args.train:
         n_gpu = 1
-        init_model_path = "/shared/home/kdd/HZ/inha-challenge/models/multi_weight.ckpt"
+        init_model_path = "./models/multi_weight.ckpt"
 
         batch_size = 2
-        learning_rate = 1e-7 * n_gpu
+        learning_rate = 1e-7
         sd_locked = False  #
         only_mid_control = False
 
-        model = create_model(
-            "/shared/home/kdd/HZ/inha-challenge/L-CAD/configs/cldm_v15_ehdecoder.yaml"
-        ).cpu()
+        model = create_model("./L-CAD/configs/cldm_v15_ehdecoder.yaml").cpu()
 
         model.load_state_dict(
             load_state_dict(init_model_path, location="cpu"), strict=False
@@ -106,8 +101,10 @@ if __name__ == "__main__":
         model.only_mid_control = only_mid_control
 
         dataset = MyDataset(
-            img_dir="/shared/home/kdd/HZ/inha-challenge/train/input_image",
-            caption_path="/shared/home/kdd/HZ/inha-challenge/train/caption_train_mine.json",
+            img_dir="./train/input_image",
+            caption_path="./train/caption_train.json",
+            split="train",
+            use_sam=False,
         )
 
         dataloader = DataLoader(
@@ -116,7 +113,6 @@ if __name__ == "__main__":
         trainer = pl.Trainer(
             gpus=1,
             precision=32,
-            default_root_dir=str(save_dir),
             callbacks=callbacks,
             max_epochs=6,
             log_every_n_steps=250,
@@ -126,19 +122,16 @@ if __name__ == "__main__":
 
     else:  # test or val
 
-        resume_path = ".models/xxxxx.ckpt"
+        resume_path = "./models/multi_weight.ckpt"
 
         batch_size = 1
 
-        model = create_model(
-            "/shared/home/kdd/HZ/inha-challenge/L-CAD/configs/cldm_v15_ehdecoder.yaml"
-        ).cpu()
+        model = create_model("./L-CAD/configs/cldm_v15_ehdecoder.yaml").cpu()
         model.load_state_dict(load_state_dict(resume_path, location="cpu"))
 
         trainer = pl.Trainer(
             gpus=1,
             precision=32,
-            default_root_dir=str(save_dir),
             callbacks=callbacks,
             max_epochs=6,
             log_every_n_steps=250,
@@ -147,8 +140,8 @@ if __name__ == "__main__":
             if args.usesam:  # -m -s
                 model.usesam = True
                 dataset = MyDataset(
-                    img_dir="/shared/home/kdd/HZ/inha-challenge",
-                    caption_path="./sam_mask/pairs.json",
+                    img_dir="./",
+                    caption_path="./test/pairs.json",
                     split="test",
                     use_sam=True,
                 )
@@ -168,8 +161,8 @@ if __name__ == "__main__":
         else:  # val
             model.usesam = False
             dataset = MyDataset(
-                img_dir="/shared/home/kdd/HZ/inha-challenge",
-                caption_path="/shared/home/kdd/HZ/inha-challenge/validation/caption_validation.json",
+                img_dir="./",
+                caption_path="./validation/caption_validation.json",
                 split="val",
             )  #
             dataloader = DataLoader(
