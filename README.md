@@ -1,6 +1,6 @@
 # 2025 인하 인공지능 챌린지
 ## Pretrained Checkpoint & dataset
-준비 중... </br>
+https://drive.google.com/drive/folders/1ZPopR4h3fn9Tx_zdVRaqJ56-43JbBzW8?usp=sharing </br>
 
 ## Folder Structure
 - ckpt, data 파일은 위의 Pretrained Checkpoint & dataset 섹션에서 다운로드 받은후 드라이브 구조와 동일하게 위치하면 됩니다.
