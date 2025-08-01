@@ -8,7 +8,7 @@ from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
 
 # ───────────── 경로 설정 ───────────────────────────────────────────
 IMG_DIR = "./test/input_image"  # 입력 이미지 폴더
-MASK_DIR = "./sam_mask/select_masks__"  # 마스크(NPY) 저장 루트
+MASK_DIR = "./sam_mask/select_masks"  # 마스크(NPY) 저장 루트
 os.makedirs(MASK_DIR, exist_ok=True)
 
 # ───────────── SAM2 설정 ──────────────────────────────────────────
