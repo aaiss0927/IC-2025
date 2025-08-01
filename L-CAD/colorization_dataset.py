@@ -17,7 +17,7 @@ class MyDataset(Dataset):
         self,
         img_dir,
         caption_path=None,
-        split="test",
+        split="train",
         img_size=512,
         use_sam=True,
         mask_dir=None,
@@ -58,15 +58,13 @@ class MyDataset(Dataset):
 
         elif split == "test":
             self.istest = True
-            self.img_dir = "/shared/home/kdd/HZ/inha-challenge/test/input_image"
+            self.img_dir = "./test/input_image"
+            caption_path = caption_path
             if self.use_sam:
                 print("use SAM!!!!!")
-                caption_path = caption_path
+
             else:
                 print("don't use SAM.....")
-                caption_path = os.path.join(
-                    "/shared/home/kdd/HZ/inha-challenge/test", "test-pair.json"
-                )
 
             self.transform = transforms.Compose(
                 [  # CenterCropLongEdge(),
