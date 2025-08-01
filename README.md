@@ -66,7 +66,8 @@ cd sam2 && pip install -e . && cd ..
 ## Preprocessing
 - 데이터셋을 모델의 입력 형태에 맞게 처리합니다.
 ```bash
-python ./util/preprocessing.py
+python ./util/processing.py --type train --csv_path ./train/train.csv --out_json ./train/caption_train.json
+python ./util/processing.py --type test --csv_path ./test/test.csv --out_json ./test/pairs.json
 ```
 
 ## Masking
