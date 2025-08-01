@@ -44,7 +44,7 @@ IC-2025/
 │   ├── train.csv
 │   └── caption_train.json
 ├── util/
-│   └── preprocessing.py
+│   └── processing.py
 ├── README.md
 └── requirements.txt
 ```
