@@ -80,7 +80,7 @@ python ./sam_mask/make_mask.py
 - L-CAD의 사전 가중치인 multi_weight.ckpt로 추론 시 최고 성능을 달성하였습니다.
 - Private Score 복원을 위해서는 학습을 생략하고 multi_weight.ckpt로 추론을 진행합니다.
 ```bash
-python ./L-CAD/colorization_main.py
+python ./L-CAD/colorization_main.py -t
 ```
 
 ## Inference
