@@ -5,9 +5,12 @@
 https://drive.google.com/drive/folders/1ZPopR4h3fn9Tx_zdVRaqJ56-43JbBzW8?usp=sharing </br>
 
 - 모델 체크포인트 파일 </br>
-./models/largedecoder-checkpoint.pth : https://drive.google.com/drive/folders/1_zVJrp_UkFDaZpcC8aLzpv4iPsHADQU- </br>
-./models/multi_weight.ckpt : https://drive.google.com/drive/folders/1_zVJrp_UkFDaZpcC8aLzpv4iPsHADQU- </br>
-./models/sam2.1_hiera_base_plus.pt : https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt </br>
+./models/largedecoder-checkpoint.pth :</br>
+https://drive.google.com/drive/folders/1_zVJrp_UkFDaZpcC8aLzpv4iPsHADQU- </br>
+./models/multi_weight.ckpt : </br>
+https://drive.google.com/drive/folders/1_zVJrp_UkFDaZpcC8aLzpv4iPsHADQU- </br>
+./models/sam2.1_hiera_base_plus.pt : </br>
+https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt </br>
 
 ## Folder Structure
 - ckpt, data 파일은 위의 Pretrained Checkpoint & dataset 섹션에서 다운로드 받은후 드라이브 구조와 동일하게 위치하면 됩니다.
