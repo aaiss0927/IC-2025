@@ -36,13 +36,13 @@ IC-2025/
 │   └── final_ensemble.zip
 ├── test/          # 테스트 데이터셋
 │   ├── input_image
-│   ├── test.csv
-│   └── caption_test.json
+│   ├── pairs.json
+│   └── test.csv
 ├── train/         # 학습 데이터셋
 │   ├── gt_image
 │   ├── input_image
-│   ├── train.csv
-│   └── caption_train.json
+│   ├── caption_train.json
+│   └── train.csv
 ├── util/
 │   └── processing.py
 ├── README.md
