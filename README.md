@@ -93,7 +93,8 @@ python ./L-CAD/inference.py --guidance 4.0 4.5 5.0 5.5
 ## Ensemble
 - 일반화 성능 향상을 위해 다양한 guidance로 생성된 이미지 픽셀 값의 평균으로 최정 결과를 도출합니다.
 ```bash
-python ./L-CAD/ensemble.py
+python ./L-CAD/ensemble.py --mode mean --zip ./submission/submission_g4p0.zip ./submission/submission_g4p5.zip ./submission/submission_g5p0.zip ./submission/subm
+ission_g5p5.zip
 ```
 
 이후 최종 결과물은 submission/final_ensemble.zip 입니다.
