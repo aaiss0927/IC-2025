@@ -54,6 +54,7 @@ IC-2025/
 - 아래 명령어를 순서대로 실행시키면 됩니다.
 
 ```bash
+https://github.com/aaiss0927/IC-2025.git
 conda create -n iac python=3.10 -y
 conda activate iac
 python -m pip install torch==2.7.1+cu118 torchvision==0.22.1+cu118 --index-url https://download.pytorch.org/whl/cu118
